@@ -9,16 +9,20 @@ import { Intro } from './components/Intro'
 import { Letter } from './components/Letter'
 import { MusicToggle, ScrollProgress } from './components/MusicToggle'
 import { Polaroids } from './components/Polaroids'
+import { Puzzle } from './components/Puzzle'
 import { Reasons } from './components/Reasons'
+import { Story } from './components/Story'
 import { content } from './content'
 import { useCountdown } from './hooks/useCountdown'
 import { useMusic } from './hooks/useMusic'
 
-type Stage = 'envelope' | 'intro' | 'card'
+type Stage = 'envelope' | 'puzzle' | 'intro' | 'card'
 
 export default function App() {
   const { isOpen, time } = useCountdown()
-  const [stage, setStage] = useState<Stage>('envelope')
+  const [stage, setStage] = useState<Stage>(() =>
+    new URLSearchParams(window.location.search).get('preview') === 'card' ? 'card' : 'envelope',
+  )
   const music = useMusic(content.music)
   const { switchTo } = music
 
@@ -44,7 +48,9 @@ export default function App() {
           {!isOpen ? (
             <Countdown key="countdown" time={time} />
           ) : stage === 'envelope' ? (
-            <Envelope key="envelope" onTap={music.start} onOpen={() => setStage('intro')} />
+            <Envelope key="envelope" onTap={music.start} onOpen={() => setStage('puzzle')} />
+          ) : stage === 'puzzle' ? (
+            <Puzzle key="puzzle" onSolved={() => setStage('intro')} />
           ) : stage === 'intro' ? (
             <Intro key="intro" onDone={showCard} />
           ) : (
@@ -53,13 +59,14 @@ export default function App() {
               <Letter />
               <Polaroids />
               <Reasons />
+              <Story />
               <Cake onListenChange={music.duck} />
             </motion.div>
           )}
         </AnimatePresence>
       </main>
       {stage === 'card' && <ScrollProgress />}
-      {stage !== 'envelope' && music.available && <MusicToggle playing={music.playing} onToggle={music.toggle} />}
+      {music.available &&<MusicToggle playing={music.playing} onToggle={music.toggle} />}
     </MotionConfig>
   )
 }

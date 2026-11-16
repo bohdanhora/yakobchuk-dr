@@ -1,0 +1,466 @@
+import { AnimatePresence, motion } from 'motion/react'
+import type { ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { content } from '../content'
+import { sparkle } from '../lib/celebrate'
+import {
+  gem,
+  isCorrectSpot,
+  maxPieceSide,
+  pieceById,
+  pieces,
+  shuffle,
+  SIZE,
+  type Piece,
+  type Spot,
+  type Tone,
+} from '../lib/puzzle'
+
+type Drag = {
+  id: string
+  x: number
+  y: number
+  fx: number
+  fy: number
+  lift: number
+}
+
+type Grab = (e: ReactPointerEvent<HTMLElement>, rect: DOMRect) => void
+
+const HINT_AFTER_MISTAKES = 3
+const TRAY_SLOT = 84
+
+function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={label} className="flex flex-col items-center gap-1.5">
+      <span className="flex size-12 items-center justify-center rounded-full border border-gold-500/50 bg-wine-900/70 text-gold-300 shadow-card backdrop-blur-sm transition-transform active:scale-90">
+        {children}
+      </span>
+      <span className="text-xs tracking-wide text-cream/55">{label}</span>
+    </button>
+  )
+}
+
+function ResetIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5 fill-none stroke-current" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12a8 8 0 1 0 2.4-5.7" />
+      <path d="M4 4v4.5h4.5" />
+    </svg>
+  )
+}
+
+function HintIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5 fill-none stroke-current" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18h6M10 21h4" />
+      <path d="M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.2h5c0-.9.4-1.7 1.1-2.2A6 6 0 0 0 12 3z" />
+    </svg>
+  )
+}
+
+function Block({ tone, pitch, r, c, onGrab }: { tone: Tone; pitch: number; r: number; c: number; onGrab?: (e: ReactPointerEvent<HTMLElement>) => void }) {
+  return (
+    <div
+      onPointerDown={onGrab}
+      className={`absolute p-0.5 ${onGrab ? 'pointer-events-auto cursor-grab touch-none' : ''}`}
+      style={{ left: c * pitch, top: r * pitch, width: pitch, height: pitch }}
+    >
+      <div className="size-full rounded-md" style={gem(tone)} />
+    </div>
+  )
+}
+
+function Shape({ piece, pitch, onGrab }: { piece: Piece; pitch: number; onGrab?: Grab }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const grab = onGrab
+    ? (e: ReactPointerEvent<HTMLElement>) => {
+        if (ref.current) onGrab(e, ref.current.getBoundingClientRect())
+      }
+    : undefined
+
+  return (
+    <div
+      ref={ref}
+      data-piece={piece.id}
+      className="pointer-events-none relative"
+      style={{ width: piece.w * pitch, height: piece.h * pitch }}
+    >
+      {piece.cells.map(([r, c]) => (
+        <Block key={`${r}-${c}`} tone={piece.tone} pitch={pitch} r={r} c={c} onGrab={grab} />
+      ))}
+    </div>
+  )
+}
+
+function Burst({ grid, pitch }: { grid: (string | null)[][]; pitch: number }) {
+  const cells = useMemo(
+    () =>
+      grid.flatMap((row, r) =>
+        row.map((id, c) => ({
+          r,
+          c,
+          tone: pieceById[id ?? 'A'].tone,
+          dist: Math.hypot(r - 2.5, c - 2.5),
+          spin: (Math.random() - 0.5) * 180,
+          push: 0.6 + Math.random() * 0.8,
+        })),
+      ),
+    [grid],
+  )
+
+  return (
+    <>
+      {cells.map((cell) => (
+        <motion.div
+          key={`${cell.r}-${cell.c}`}
+          className="absolute p-0.5"
+          style={{ left: cell.c * pitch, top: cell.r * pitch, width: pitch, height: pitch }}
+          initial={{ scale: 1, opacity: 1 }}
+          animate={{
+            scale: [1, 1.15, 1.15, 0],
+            opacity: [1, 1, 1, 0],
+            rotate: [0, 0, 0, cell.spin],
+            x: [0, 0, 0, (cell.c - 2.5) * pitch * cell.push],
+            y: [0, -4, -4, (cell.r - 2.5) * pitch * cell.push],
+          }}
+          transition={{ duration: 1.3, delay: 0.4 + cell.dist * 0.1, times: [0, 0.25, 0.45, 1], ease: 'easeIn' }}
+        >
+          <div className="size-full rounded-md" style={gem(cell.tone)} />
+        </motion.div>
+      ))}
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-xl bg-gold-200"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: [0, 0.55, 0] }}
+        transition={{ duration: 0.7, delay: 0.25 }}
+      />
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 left-1/2 size-24 -translate-1/2 rounded-full border-2 border-gold-300"
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: [0, 4.5], opacity: [1, 0] }}
+        transition={{ duration: 1.2, delay: 0.7, ease: 'easeOut' }}
+      />
+    </>
+  )
+}
+
+export function Puzzle({ onSolved }: { onSolved: () => void }) {
+  const { eyebrow, title, subtitle, hint, reset, solved: solvedText } = content.puzzle
+  const boardRef = useRef<HTMLDivElement>(null)
+  const [pitch, setPitch] = useState(56)
+  const [placed, setPlaced] = useState<Record<string, Spot>>({})
+  const [order] = useState(() => shuffle(pieces.map((p) => p.id)))
+  const [drag, setDrag] = useState<Drag | null>(null)
+  const [hinted, setHinted] = useState<string | null>(null)
+  const [mistakes, setMistakes] = useState(0)
+  const dragRef = useRef<Drag | null>(null)
+  const targetRef = useRef<Spot | null>(null)
+  const doneRef = useRef(onSolved)
+  const solved = pieces.every((p) => placed[p.id])
+  const hintReady = mistakes >= HINT_AFTER_MISTAKES
+  const trayPitch = Math.floor(Math.min(pitch * 0.42, TRAY_SLOT / maxPieceSide))
+
+  useEffect(() => {
+    doneRef.current = onSolved
+  })
+
+  useLayoutEffect(() => {
+    const el = boardRef.current
+    if (!el) return
+    const measure = () => setPitch(el.clientWidth / SIZE)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const grid = useMemo(() => {
+    const g: (string | null)[][] = Array.from({ length: SIZE }, () => Array<string | null>(SIZE).fill(null))
+    for (const [id, spot] of Object.entries(placed)) {
+      for (const [r, c] of pieceById[id].cells) g[spot.r + r][spot.c + c] = id
+    }
+    return g
+  }, [placed])
+
+  const target = useMemo(() => {
+    const board = boardRef.current
+    if (!drag || !board) return null
+    const piece = pieceById[drag.id]
+    const rect = board.getBoundingClientRect()
+    const left = drag.x - drag.fx * piece.w * pitch
+    const top = drag.y - drag.fy * piece.h * pitch - drag.lift
+    const spot = { r: Math.round((top - rect.top) / pitch), c: Math.round((left - rect.left) / pitch) }
+    const fits = piece.cells.every(([r, c]) => {
+      const rr = spot.r + r
+      const cc = spot.c + c
+      return rr >= 0 && cc >= 0 && rr < SIZE && cc < SIZE && (grid[rr][cc] === null || grid[rr][cc] === drag.id)
+    })
+    return fits ? spot : null
+  }, [drag, pitch, grid])
+
+  const placedRef = useRef(placed)
+
+  useEffect(() => {
+    dragRef.current = drag
+    targetRef.current = target
+    placedRef.current = placed
+  })
+
+  const dragId = drag?.id
+
+  useEffect(() => {
+    if (!dragId) return
+    const move = (e: PointerEvent) => setDrag((d) => (d ? { ...d, x: e.clientX, y: e.clientY } : d))
+    const up = () => {
+      const d = dragRef.current
+      const t = targetRef.current
+      if (d) {
+        setPlaced((prev) => {
+          const next = { ...prev }
+          if (t) next[d.id] = t
+          else delete next[d.id]
+          return next
+        })
+        if (t) {
+          navigator.vibrate?.(8)
+          const prev = placedRef.current[d.id]
+          const moved = !prev || prev.r !== t.r || prev.c !== t.c
+          if (moved && !isCorrectSpot(pieceById[d.id], t)) setMistakes((m) => m + 1)
+        }
+      }
+      setDrag(null)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+  }, [dragId])
+
+  useEffect(() => {
+    if (!solved) return
+    navigator.vibrate?.([15, 60, 15, 60, 40])
+    const rect = boardRef.current?.getBoundingClientRect()
+    const burst = window.setTimeout(() => {
+      if (rect) sparkle((rect.left + rect.width / 2) / window.innerWidth, (rect.top + rect.height / 2) / window.innerHeight, 90)
+    }, 800)
+    const done = window.setTimeout(() => doneRef.current(), 3600)
+    return () => {
+      window.clearTimeout(burst)
+      window.clearTimeout(done)
+    }
+  }, [solved])
+
+  const grab =
+    (id: string): Grab =>
+    (e, rect) => {
+      if (solved) return
+      e.preventDefault()
+      setHinted(null)
+      setDrag({
+        id,
+        x: e.clientX,
+        y: e.clientY,
+        fx: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
+        fy: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
+        lift: e.pointerType === 'touch' ? pitch * 1.2 : 0,
+      })
+    }
+
+  const showHint = () => {
+    const next = order.find((id) => {
+      const spot = placed[id]
+      return !spot || !isCorrectSpot(pieceById[id], spot)
+    })
+    if (!next) return
+    setHinted(next)
+    window.setTimeout(() => setHinted((h) => (h === next ? null : h)), 3500)
+  }
+
+  const dragPiece = drag ? pieceById[drag.id] : null
+  const hintPiece = hinted ? pieceById[hinted] : null
+
+  return (
+    <motion.section
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: { duration: 0.8 } }}
+      transition={{ duration: 1 }}
+      className="flex min-h-svh flex-col items-center px-4 pt-10 pb-8 select-none"
+    >
+      <motion.p
+        initial={{ opacity: 0, letterSpacing: '0.7em' }}
+        animate={{ opacity: 1, letterSpacing: '0.3em' }}
+        transition={{ delay: 0.2, duration: 1.6 }}
+        className="text-xs text-gold-400 uppercase"
+      >
+        {eyebrow}
+      </motion.p>
+      <motion.h1
+        initial={{ opacity: 0, y: 12, filter: 'blur(8px)' }}
+        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+        transition={{ delay: 0.4, duration: 1.2 }}
+        className="text-gold mt-2 font-serif text-4xl italic"
+      >
+        {solved ? solvedText : title}
+      </motion.h1>
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: solved ? 0 : 1 }}
+        transition={{ delay: solved ? 0 : 0.8, duration: 0.8 }}
+        className="mt-2 max-w-xs text-center text-base leading-snug text-cream/70 italic"
+      >
+        {subtitle}
+      </motion.p>
+
+      <motion.div
+        initial={{ opacity: 0, scale: 0.92, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ delay: 0.6, duration: 1, ease: [0.22, 1, 0.36, 1] }}
+        className="relative mt-6 w-full max-w-sm rounded-3xl border border-gold-500/40 bg-linear-to-b from-wine-800/80 to-wine-950/90 p-2.5 shadow-card backdrop-blur-sm"
+      >
+        <div ref={boardRef} className="relative aspect-square w-full">
+          {Array.from({ length: SIZE * SIZE }, (_, i) => (
+            <div
+              key={i}
+              className="absolute p-0.5"
+              style={{ left: (i % SIZE) * pitch, top: Math.floor(i / SIZE) * pitch, width: pitch, height: pitch }}
+            >
+              <div className="size-full rounded-md bg-night/55 shadow-inner" />
+            </div>
+          ))}
+
+          {!solved &&
+            Object.entries(placed).map(([id, spot]) =>
+              id === dragId ? null : (
+                <motion.div
+                  key={id}
+                  className="pointer-events-none absolute"
+                  style={{ left: spot.c * pitch, top: spot.r * pitch }}
+                  initial={{ scale: 1.12 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+                >
+                  <Shape piece={pieceById[id]} pitch={pitch} onGrab={grab(id)} />
+                </motion.div>
+              ),
+            )}
+
+          {hintPiece &&
+            hintPiece.cells.map(([r, c]) => (
+              <motion.div
+                key={`hint-${r}-${c}`}
+                className="pointer-events-none absolute z-10 p-0.5"
+                style={{
+                  left: (hintPiece.solution.c + c) * pitch,
+                  top: (hintPiece.solution.r + r) * pitch,
+                  width: pitch,
+                  height: pitch,
+                }}
+                initial={{ opacity: 0, scale: 0.6 }}
+                animate={{ opacity: [0.6, 1, 0.6], scale: [0.94, 1, 0.94] }}
+                transition={{ duration: 1.1, repeat: Infinity }}
+              >
+                <div
+                  className="size-full rounded-md border-2 border-white"
+                  style={{
+                    backgroundColor: `${hintPiece.tone.light}cc`,
+                    boxShadow: `0 0 14px 2px ${hintPiece.tone.light}, inset 0 0 8px rgb(255 255 255 / 0.6)`,
+                  }}
+                />
+              </motion.div>
+            ))}
+
+          {dragPiece &&
+            target &&
+            dragPiece.cells.map(([r, c]) => (
+              <div
+                key={`preview-${r}-${c}`}
+                className="absolute p-0.5"
+                style={{ left: (target.c + c) * pitch, top: (target.r + r) * pitch, width: pitch, height: pitch }}
+              >
+                <div className="size-full rounded-md border-2 border-gold-300/90 bg-gold-300/20" />
+              </div>
+            ))}
+
+          {solved && <Burst grid={grid} pitch={pitch} />}
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {!solved && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ delay: 0.9, duration: 0.8 }}
+            className="mt-5 grid w-full max-w-sm grid-cols-3 gap-2"
+          >
+            {order.map((id) => {
+              const hidden = Boolean(placed[id]) || id === dragId
+              return (
+                <div
+                  key={id}
+                  onPointerDown={(e) => {
+                    const shape = e.currentTarget.querySelector('[data-piece]')
+                    if (!hidden && shape) grab(id)(e, shape.getBoundingClientRect())
+                  }}
+                  className={`flex h-24 touch-none items-center justify-center rounded-2xl bg-night/25 ${hidden ? '' : 'cursor-grab'}`}
+                >
+                  <div className={hidden ? 'invisible' : ''}>
+                    <Shape piece={pieceById[id]} pitch={trayPitch} />
+                  </div>
+                </div>
+              )
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {!solved && (
+        <div className="mt-5 flex items-start justify-center gap-8">
+          <IconButton label={reset} onClick={() => setPlaced({})}>
+            <ResetIcon />
+          </IconButton>
+          <AnimatePresence>
+            {hintReady && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: 1, scale: [0.5, 1.15, 1] }}
+                exit={{ opacity: 0, scale: 0.5 }}
+                transition={{ duration: 0.6 }}
+              >
+                <IconButton label={hint} onClick={showHint}>
+                  <HintIcon />
+                </IconButton>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {drag &&
+        dragPiece &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed z-50 drop-shadow-2xl"
+            style={{
+              left: drag.x - drag.fx * dragPiece.w * pitch,
+              top: drag.y - drag.fy * dragPiece.h * pitch - drag.lift,
+              transform: 'scale(1.06)',
+            }}
+          >
+            <Shape piece={dragPiece} pitch={pitch} />
+          </div>,
+          document.body,
+        )}
+    </motion.section>
+  )
+}

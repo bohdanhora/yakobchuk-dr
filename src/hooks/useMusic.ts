@@ -10,6 +10,7 @@ type Graph = {
 }
 
 const keys: TrackKey[] = ['main', 'scroll']
+const gestures = ['pointerup', 'touchend', 'click', 'keydown'] as const
 const MASTER = 0.7
 const DUCKED = 0.1
 
@@ -20,15 +21,64 @@ function ramp(ctx: AudioContext, param: AudioParam, to: number, seconds: number)
   param.linearRampToValueAtTime(to, now + seconds)
 }
 
+function buildGraph(els: Record<TrackKey, HTMLAudioElement>): Graph {
+  const ctx = new AudioContext()
+  const master = ctx.createGain()
+  master.gain.value = MASTER
+  master.connect(ctx.destination)
+  const gains = {} as Record<TrackKey, GainNode>
+  for (const key of keys) {
+    const gain = ctx.createGain()
+    gain.gain.value = 0
+    ctx.createMediaElementSource(els[key]).connect(gain).connect(master)
+    gains[key] = gain
+  }
+  return { ctx, master, gains }
+}
+
 export function useMusic(tracks: Tracks | null) {
   const elements = useRef<Record<TrackKey, HTMLAudioElement> | null>(null)
   const graph = useRef<Graph | null>(null)
   const current = useRef<TrackKey>('main')
+  const started = useRef(false)
+  const starting = useRef(false)
   const paused = useRef(false)
   const [available, setAvailable] = useState(Boolean(tracks))
   const [playing, setPlaying] = useState(false)
   const mainSrc = tracks?.main
   const scrollSrc = tracks?.scroll
+
+  const begin = useCallback((fromGesture: boolean) => {
+    const els = elements.current
+    if (!els || started.current || starting.current) return
+    starting.current = true
+    graph.current ??= buildGraph(els)
+    const g = graph.current
+    g.ctx.resume().catch(() => {})
+
+    if (fromGesture) {
+      const other = current.current === 'main' ? 'scroll' : 'main'
+      els[other]
+        .play()
+        .then(() => {
+          if (current.current !== other) els[other].pause()
+        })
+        .catch(() => {})
+    }
+
+    els[current.current]
+      .play()
+      .then(() => {
+        started.current = true
+        paused.current = false
+        ramp(g.ctx, g.gains[current.current].gain, 1, 2.5)
+        setPlaying(true)
+      })
+      .catch(() => {})
+      .finally(() => {
+        starting.current = false
+      })
+  }, [])
 
   useEffect(() => {
     if (!mainSrc || !scrollSrc) return
@@ -41,7 +91,19 @@ export function useMusic(tracks: Tracks | null) {
       audio.addEventListener('error', onError)
     }
     elements.current = created
+
+    const onGesture = () => {
+      if (started.current) {
+        for (const type of gestures) window.removeEventListener(type, onGesture, true)
+        return
+      }
+      if (!paused.current) begin(true)
+    }
+    for (const type of gestures) window.addEventListener(type, onGesture, true)
+    begin(false)
+
     return () => {
+      for (const type of gestures) window.removeEventListener(type, onGesture, true)
       for (const audio of Object.values(created)) {
         audio.pause()
         audio.removeEventListener('error', onError)
@@ -49,45 +111,20 @@ export function useMusic(tracks: Tracks | null) {
       graph.current?.ctx.close()
       graph.current = null
       elements.current = null
+      started.current = false
+      starting.current = false
     }
-  }, [mainSrc, scrollSrc])
+  }, [mainSrc, scrollSrc, begin])
 
-  const start = useCallback(() => {
-    const els = elements.current
-    if (!els || graph.current) return
-    const ctx = new AudioContext()
-    const master = ctx.createGain()
-    master.gain.value = MASTER
-    master.connect(ctx.destination)
-    const gains = {} as Record<TrackKey, GainNode>
-    for (const key of keys) {
-      const gain = ctx.createGain()
-      gain.gain.value = 0
-      ctx.createMediaElementSource(els[key]).connect(gain).connect(master)
-      gains[key] = gain
-    }
-    graph.current = { ctx, master, gains }
-    ctx.resume()
-
-    els.scroll
-      .play()
-      .then(() => {
-        if (current.current !== 'scroll') els.scroll.pause()
-      })
-      .catch(() => {})
-    els.main.play().catch(() => setPlaying(false))
-    ramp(ctx, gains.main.gain, 1, 2.5)
-    paused.current = false
-    setPlaying(true)
-  }, [])
+  const start = useCallback(() => begin(true), [begin])
 
   const switchTo = useCallback((key: TrackKey) => {
     const g = graph.current
     const els = elements.current
-    if (!g || !els || current.current === key) return
+    if (!els || current.current === key) return
     const prev = current.current
     current.current = key
-    if (paused.current) return
+    if (!g || !started.current || paused.current) return
 
     ramp(g.ctx, g.gains[prev].gain, 0, 2.5)
     window.setTimeout(() => {
@@ -100,7 +137,13 @@ export function useMusic(tracks: Tracks | null) {
   const toggle = useCallback(() => {
     const g = graph.current
     const els = elements.current
-    if (!g || !els) return
+    if (!els) return
+    if (!started.current) {
+      paused.current = false
+      begin(true)
+      return
+    }
+    if (!g) return
     const audio = els[current.current]
     if (paused.current) {
       paused.current = false
@@ -112,7 +155,7 @@ export function useMusic(tracks: Tracks | null) {
       audio.pause()
       setPlaying(false)
     }
-  }, [])
+  }, [begin])
 
   const duck = useCallback((on: boolean) => {
     const g = graph.current
