@@ -1,12 +1,21 @@
 import { useMotionValue } from 'motion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export type BlowStatus = 'idle' | 'starting' | 'listening' | 'denied' | 'unsupported'
+export type BlowStatus = 'idle' | 'starting' | 'listening' | 'retry' | 'blocked' | 'unsupported'
 
 const LOW_BAND_HZ = 1200
 const THRESHOLD = 0.45
 const SUSTAIN_FRAMES = 8
 const BLOW_INTERVAL_MS = 170
+
+async function permissionState() {
+  try {
+    const result = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+    return result.state
+  } catch {
+    return 'prompt'
+  }
+}
 
 export function useBlow(onBlow: () => void) {
   const [status, setStatus] = useState<BlowStatus>(() =>
@@ -30,12 +39,26 @@ export function useBlow(onBlow: () => void) {
   const start = useCallback(async () => {
     if (cleanupRef.current) return
     setStatus('starting')
+    const ctx = new AudioContext()
+    const resumed = ctx.resume().catch(() => undefined)
+    let stream: MediaStream
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
       })
-      const ctx = new AudioContext()
-      await ctx.resume()
+    } catch (error) {
+      ctx.close()
+      const name = error instanceof DOMException ? error.name : ''
+      if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        setStatus('unsupported')
+        return
+      }
+      setStatus(name === 'NotAllowedError' && (await permissionState()) === 'denied' ? 'blocked' : 'retry')
+      return
+    }
+    try {
+      await resumed
+      if (ctx.state !== 'running') await ctx.resume()
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       analyser.smoothingTimeConstant = 0.2
@@ -69,7 +92,9 @@ export function useBlow(onBlow: () => void) {
       }
       setStatus('listening')
     } catch {
-      setStatus('denied')
+      stream.getTracks().forEach((track) => track.stop())
+      ctx.close()
+      setStatus('retry')
     }
   }, [level])
 

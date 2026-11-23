@@ -178,7 +178,8 @@ function CakeArt({ lit, lean, onBlow }: CakeArtProps) {
 }
 
 export function Cake({ onListenChange }: { onListenChange?: (on: boolean) => void }) {
-  const { eyebrow, title, hint, micButton, listening, tapHint, denied, candles } = content.cake
+  const { eyebrow, title, hint, micButton, listening, tapHint, retry, retryHint, blocked, unavailable, candles } =
+    content.cake
   const finale = content.finale
   const [lit, setLit] = useState(() => Array.from({ length: candles }, () => true))
   const finaleRef = useRef<HTMLDivElement>(null)
@@ -199,7 +200,6 @@ export function Cake({ onListenChange }: { onListenChange?: (on: boolean) => voi
   const { stop: stopMic } = mic
   const lean = useTransform(mic.level, [0, 0.6], [0, -30])
   const ring = useTransform(mic.level, [0, 0.6], [1, 1.9])
-  const micUnavailable = mic.status === 'denied' || mic.status === 'unsupported'
 
   useEffect(() => {
     onListenChange?.(mic.status === 'listening')
@@ -279,20 +279,27 @@ export function Cake({ onListenChange }: { onListenChange?: (on: boolean) => voi
                 {listening}
               </motion.p>
             </>
-          ) : micUnavailable ? (
-            <p className="max-w-xs text-lg text-cream/70 italic">{denied}</p>
+          ) : mic.status === 'unsupported' ? (
+            <p className="max-w-xs text-lg text-cream/70 italic">{unavailable}</p>
           ) : (
-            <button
-              type="button"
-              onClick={mic.start}
-              disabled={mic.status === 'starting'}
-              className="flex items-center gap-3 rounded-full border border-gold-500/50 bg-wine-900/50 px-6 py-3 text-lg text-gold-200 shadow-card backdrop-blur-sm transition-colors active:bg-wine-800 disabled:opacity-60"
-            >
-              <MicIcon />
-              {micButton}
-            </button>
+            <>
+              {(mic.status === 'retry' || mic.status === 'blocked') && (
+                <p className="max-w-xs text-base text-cream/70 italic">
+                  {mic.status === 'blocked' ? blocked : retryHint}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={mic.start}
+                disabled={mic.status === 'starting'}
+                className="flex items-center gap-3 rounded-full border border-gold-500/50 bg-wine-900/50 px-6 py-3 text-lg text-gold-200 shadow-card backdrop-blur-sm transition-colors active:bg-wine-800 disabled:opacity-60"
+              >
+                <MicIcon />
+                {mic.status === 'retry' || mic.status === 'blocked' ? retry : micButton}
+              </button>
+            </>
           )}
-          {!micUnavailable && <p className="text-base text-cream/50 italic">{tapHint}</p>}
+          {mic.status !== 'unsupported' && <p className="text-base text-cream/50 italic">{tapHint}</p>}
         </motion.div>
       )}
 
