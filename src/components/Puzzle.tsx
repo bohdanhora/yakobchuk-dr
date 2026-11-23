@@ -27,16 +27,20 @@ type Drag = {
 
 type Grab = (e: ReactPointerEvent<HTMLElement>, rect: DOMRect) => void
 
-const TRAY_SLOT = 42
-const HINT_MS = 4000
+const TRAY_SLOT = 72
+const AUTO_AFTER = 30
+const AUTO_STEP_MS = 280
 const CENTER = (SIZE - 1) / 2
 
-function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+type IconButtonProps = { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }
+
+function IconButton({ label, onClick, disabled = false, children }: IconButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-2 rounded-full border border-gold-500/50 bg-wine-900/70 px-4 py-2 text-sm text-gold-200 shadow-card backdrop-blur-sm transition-transform active:scale-95"
+      disabled={disabled}
+      className="flex items-center gap-2 rounded-full border border-gold-500/50 bg-wine-900/70 px-4 py-2 text-sm text-gold-200 tabular-nums shadow-card backdrop-blur-sm transition-transform active:scale-95 disabled:opacity-50 disabled:active:scale-100"
     >
       {children}
       {label}
@@ -53,11 +57,11 @@ function ResetIcon() {
   )
 }
 
-function HintIcon() {
+function WandIcon() {
   return (
     <svg viewBox="0 0 24 24" className="size-4 fill-none stroke-current" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 18h6M10 21h4" />
-      <path d="M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.2h5c0-.9.4-1.7 1.1-2.2A6 6 0 0 0 12 3z" />
+      <path d="M4 20L15 9" />
+      <path d="M17 3v3M15.5 4.5h3M20 8v2M19 9h2M12 4v1.5M11.25 4.75h1.5" />
     </svg>
   )
 }
@@ -151,13 +155,14 @@ function Burst({ grid, pitch }: { grid: (string | null)[][]; pitch: number }) {
 }
 
 export function Puzzle({ onSolved }: { onSolved: () => void }) {
-  const { eyebrow, title, subtitle, hint, hintNote, reset, solved: solvedText } = content.puzzle
+  const { eyebrow, title, subtitle, autoSolve, autoSolveIn, reset, solved: solvedText } = content.puzzle
   const boardRef = useRef<HTMLDivElement>(null)
   const [pitch, setPitch] = useState(56)
   const [placed, setPlaced] = useState<Record<string, Spot>>({})
   const [order] = useState(() => shuffle(pieces.map((p) => p.id)))
   const [drag, setDrag] = useState<Drag | null>(null)
-  const [hinting, setHinting] = useState(false)
+  const [wait, setWait] = useState(AUTO_AFTER)
+  const [auto, setAuto] = useState(false)
   const dragRef = useRef<Drag | null>(null)
   const targetRef = useRef<Spot | null>(null)
   const doneRef = useRef(onSolved)
@@ -208,10 +213,21 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
   })
 
   useEffect(() => {
-    if (!hinting) return
-    const id = window.setTimeout(() => setHinting(false), HINT_MS)
+    if (wait <= 0) return
+    const id = window.setTimeout(() => setWait((w) => w - 1), 1000)
     return () => window.clearTimeout(id)
-  }, [hinting])
+  }, [wait])
+
+  useEffect(() => {
+    if (!auto) return
+    const ids = pieces.map((piece, i) =>
+      window.setTimeout(() => {
+        setPlaced((prev) => ({ ...prev, [piece.id]: piece.solution }))
+        navigator.vibrate?.(8)
+      }, 300 + i * AUTO_STEP_MS),
+    )
+    return () => ids.forEach((id) => window.clearTimeout(id))
+  }, [auto])
 
   const dragId = drag?.id
 
@@ -259,9 +275,8 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
   const grab =
     (id: string): Grab =>
     (e, rect) => {
-      if (solved) return
+      if (solved || auto) return
       e.preventDefault()
-      setHinting(false)
       setDrag({
         id,
         x: e.clientX,
@@ -272,9 +287,9 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
       })
     }
 
-  const showHint = () => {
+  const startAuto = () => {
     setPlaced({})
-    setHinting(true)
+    setAuto(true)
   }
 
   const dragPiece = drag ? pieceById[drag.id] : null
@@ -309,7 +324,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
         transition={{ delay: solved ? 0 : 0.8, duration: 0.8 }}
         className="mt-2 max-w-xs text-center text-base leading-snug text-cream/70 italic"
       >
-        {hinting ? hintNote : subtitle}
+        {subtitle}
       </motion.p>
 
       {!solved && (
@@ -319,10 +334,14 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
           transition={{ delay: 1, duration: 0.8 }}
           className="mt-3 flex items-center justify-center gap-3"
         >
-          <IconButton label={hint} onClick={showHint}>
-            <HintIcon />
+          <IconButton
+            label={wait > 0 ? `${autoSolveIn} 0:${String(wait).padStart(2, '0')}` : autoSolve}
+            onClick={startAuto}
+            disabled={wait > 0 || auto}
+          >
+            <WandIcon />
           </IconButton>
-          <IconButton label={reset} onClick={() => setPlaced({})}>
+          <IconButton label={reset} onClick={() => setPlaced({})} disabled={auto}>
             <ResetIcon />
           </IconButton>
         </motion.div>
@@ -361,35 +380,6 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
               ),
             )}
 
-          <AnimatePresence>
-            {hinting &&
-              pieces.flatMap((piece) =>
-                piece.cells.map(([r, c]) => (
-                  <motion.div
-                    key={`hint-${piece.id}-${r}-${c}`}
-                    className="pointer-events-none absolute z-10 p-0.5"
-                    style={{
-                      left: (piece.solution.c + c) * pitch,
-                      top: (piece.solution.r + r) * pitch,
-                      width: pitch,
-                      height: pitch,
-                    }}
-                    initial={{ opacity: 0, scale: 0.6 }}
-                    animate={{ opacity: [0.65, 1, 0.65], scale: [0.95, 1, 0.95] }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    transition={{ duration: 1.2, repeat: Infinity }}
-                  >
-                    <div
-                      className="size-full rounded-md border-2 border-white/80"
-                      style={{
-                        backgroundColor: `${piece.tone.light}bb`,
-                        boxShadow: `0 0 12px 1px ${piece.tone.light}, inset 0 0 8px rgb(255 255 255 / 0.5)`,
-                      }}
-                    />
-                  </motion.div>
-                )),
-              )}
-          </AnimatePresence>
 
           {dragPiece &&
             target &&
@@ -414,7 +404,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ delay: 0.9, duration: 0.8 }}
-            className="mt-4 grid w-full max-w-sm grid-cols-7 gap-1"
+            className="mt-4 grid w-full max-w-sm grid-cols-4 gap-1.5"
           >
             {order.map((id) => {
               const hidden = Boolean(placed[id]) || id === dragId

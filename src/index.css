@@ -91,7 +91,7 @@
 }
 
 @utility puzzle-board {
-  width: min(100%, 24rem, calc(100svh - 21rem));
+  width: min(100%, 24rem, calc(100svh - 25rem));
 }
 
 @utility safe-top {

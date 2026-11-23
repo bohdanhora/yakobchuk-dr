@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 
 export const SIZE = 5
 
-const layout = ['AABBB', 'ACCDB', 'ACCDE', 'FFFDE', 'FGGGE']
+const layout = ['AABBC', 'AADCC', 'EDDDF', 'EEEFF', 'GGGGF']
 
 export type Tone = { light: string; dark: string }
 
