@@ -2,15 +2,9 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import { content } from '../content'
 
-const STORAGE_KEY = 'yakobchuk-dr:safari'
-
-function shouldShow() {
-  if (!/iPhone|iPad|iPod/.test(navigator.userAgent)) return false
-  try {
-    return localStorage.getItem(STORAGE_KEY) !== '1'
-  } catch {
-    return true
-  }
+function isAppleMobile() {
+  const ua = navigator.userAgent
+  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
 }
 
 function SafariIcon() {
@@ -24,16 +18,8 @@ function SafariIcon() {
 
 export function SafariPrompt() {
   const { title, text, button } = content.safari
-  const [open, setOpen] = useState(shouldShow)
-
-  const close = () => {
-    setOpen(false)
-    try {
-      localStorage.setItem(STORAGE_KEY, '1')
-    } catch {
-      return
-    }
-  }
+  const [open, setOpen] = useState(isAppleMobile)
+  const close = () => setOpen(false)
 
   return (
     <AnimatePresence>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
 
 const SPRITE = 64
+const FRAME_MS = 1000 / 61
 
 function glowSprite() {
   const sprite = document.createElement('canvas')
@@ -53,7 +54,11 @@ function GoldDust({ count }: { count: number }) {
       twinkle: 0.008 + Math.random() * 0.03,
     }))
 
-    const draw = () => {
+    let last = 0
+    const draw = (time: number) => {
+      frame = requestAnimationFrame(draw)
+      if (time - last < FRAME_MS) return
+      last = time
       ctx.clearRect(0, 0, width, height)
       for (const p of particles) {
         p.y -= p.vy
@@ -68,9 +73,8 @@ function GoldDust({ count }: { count: number }) {
         ctx.drawImage(sprite, p.x - size / 2, p.y - size / 2, size, size)
       }
       ctx.globalAlpha = 1
-      frame = requestAnimationFrame(draw)
     }
-    draw()
+    frame = requestAnimationFrame(draw)
 
     return () => {
       cancelAnimationFrame(frame)
