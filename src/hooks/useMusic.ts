@@ -214,10 +214,20 @@ export function useMusic(tracks: Tracks | null, enabled = true) {
       const els = elements.current
       if (!els) return
       const audio = els[current.current]
-      if (volumeControl.current) fade(audio, on ? DUCKED : MASTER, 500)
-      else audio.muted = on
+      if (volumeControl.current) {
+        fade(audio, on ? DUCKED : MASTER, 1000)
+        return
+      }
+      audio.muted = on
+      if (on || audio.paused) return
+      window.setTimeout(() => {
+        if (ducked.current || paused.current || elements.current !== els) return
+        const live = els[current.current]
+        live.pause()
+        live.play().catch(() => ensure())
+      }, 250)
     },
-    [fade],
+    [fade, ensure],
   )
 
   return { available, playing, start, switchTo, toggle, duck, ensure }

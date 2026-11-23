@@ -8,6 +8,18 @@ const THRESHOLD = 0.45
 const SUSTAIN_FRAMES = 8
 const BLOW_INTERVAL_MS = 170
 
+type SessionType = 'auto' | 'playback' | 'play-and-record'
+
+function setSession(type: SessionType) {
+  const session = (navigator as Navigator & { audioSession?: { type: SessionType } }).audioSession
+  if (!session) return
+  try {
+    session.type = type
+  } catch {
+    return
+  }
+}
+
 async function permissionState() {
   try {
     const result = await navigator.permissions.query({ name: 'microphone' as PermissionName })
@@ -39,15 +51,17 @@ export function useBlow(onBlow: () => void) {
   const start = useCallback(async () => {
     if (cleanupRef.current) return
     setStatus('starting')
+    setSession('play-and-record')
     const ctx = new AudioContext()
     const resumed = ctx.resume().catch(() => undefined)
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       })
     } catch (error) {
       ctx.close()
+      setSession('playback')
       const name = error instanceof DOMException ? error.name : ''
       if (name === 'NotFoundError' || name === 'OverconstrainedError') {
         setStatus('unsupported')
@@ -89,11 +103,13 @@ export function useBlow(onBlow: () => void) {
         cancelAnimationFrame(frame)
         stream.getTracks().forEach((track) => track.stop())
         ctx.close()
+        setSession('playback')
       }
       setStatus('listening')
     } catch {
       stream.getTracks().forEach((track) => track.stop())
       ctx.close()
+      setSession('playback')
       setStatus('retry')
     }
   }, [level])
