@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEven
 import { createPortal } from 'react-dom'
 import { content } from '../content'
 import { sparkle } from '../lib/celebrate'
+import { saveSolved } from '../lib/progress'
 import {
   gem,
   maxPieceSide,
@@ -260,6 +261,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
 
   useEffect(() => {
     if (!solved) return
+    saveSolved()
     navigator.vibrate?.([15, 60, 15, 60, 40])
     const rect = boardRef.current?.getBoundingClientRect()
     const burst = window.setTimeout(() => {

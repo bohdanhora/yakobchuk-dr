@@ -6,7 +6,11 @@ const MINUTE = 60 * SECOND
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
+const testSeconds = Number(new URLSearchParams(window.location.search).get('countdown'))
+const testStart = testSeconds > 0 ? Date.now() + testSeconds * SECOND : null
+
 function birthdayStart() {
+  if (testStart) return testStart
   const { year, month, day } = content.birthday
   return new Date(year, month - 1, day, 0, 0, 0, 0).getTime()
 }
@@ -30,8 +34,15 @@ export function useCountdown() {
 
   useEffect(() => {
     if (done) return
-    const id = window.setInterval(() => setNow(Date.now()), SECOND)
-    return () => window.clearInterval(id)
+    const tick = () => setNow(Date.now())
+    const id = window.setInterval(tick, SECOND)
+    document.addEventListener('visibilitychange', tick)
+    window.addEventListener('pageshow', tick)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', tick)
+      window.removeEventListener('pageshow', tick)
+    }
   }, [done])
 
   const time: TimeLeft = {

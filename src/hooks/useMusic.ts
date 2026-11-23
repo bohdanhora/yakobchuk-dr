@@ -15,7 +15,7 @@ function supportsVolume() {
   return probe.volume === 0.5
 }
 
-export function useMusic(tracks: Tracks | null) {
+export function useMusic(tracks: Tracks | null, enabled = true) {
   const elements = useRef<Record<TrackKey, HTMLAudioElement> | null>(null)
   const fades = useRef(new Map<HTMLAudioElement, number>())
   const volumeControl = useRef(false)
@@ -24,6 +24,7 @@ export function useMusic(tracks: Tracks | null) {
   const starting = useRef(false)
   const paused = useRef(false)
   const ducked = useRef(false)
+  const switching = useRef(false)
   const [available, setAvailable] = useState(Boolean(tracks))
   const [playing, setPlaying] = useState(false)
   const mainSrc = tracks?.main
@@ -48,6 +49,19 @@ export function useMusic(tracks: Tracks | null) {
       then?.()
     }, 50)
     fades.current.set(audio, id)
+  }, [])
+
+  const ensure = useCallback(() => {
+    const els = elements.current
+    if (!els || !started.current || paused.current || switching.current) return
+    const audio = els[current.current]
+    for (const other of Object.values(els)) {
+      if (other !== audio && !other.paused && !fades.current.has(other)) other.pause()
+    }
+    if (!audio.paused) return
+    if (volumeControl.current) audio.volume = level(ducked.current)
+    else audio.muted = ducked.current
+    audio.play().catch(() => {})
   }, [])
 
   const begin = useCallback(
@@ -78,19 +92,20 @@ export function useMusic(tracks: Tracks | null) {
         .then(() => {
           started.current = true
           paused.current = false
-          fade(audio, level(ducked.current), 2500)
           setPlaying(true)
+          if (els[current.current] === audio) fade(audio, level(ducked.current), 2500)
+          else ensure()
         })
         .catch(() => {})
         .finally(() => {
           starting.current = false
         })
     },
-    [fade],
+    [fade, ensure],
   )
 
   useEffect(() => {
-    if (!mainSrc || !scrollSrc) return
+    if (!enabled || !mainSrc || !scrollSrc) return
     volumeControl.current = supportsVolume()
     const created = { main: new Audio(mainSrc), scroll: new Audio(scrollSrc) }
     const onError = () => setAvailable(false)
@@ -104,17 +119,21 @@ export function useMusic(tracks: Tracks | null) {
     const running = fades.current
 
     const onGesture = () => {
-      if (started.current) {
-        for (const type of gestures) window.removeEventListener(type, onGesture, true)
-        return
-      }
-      if (!paused.current) begin(true)
+      if (started.current) ensure()
+      else if (!paused.current) begin(true)
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') ensure()
     }
     for (const type of gestures) window.addEventListener(type, onGesture, true)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('pageshow', onVisible)
     begin(false)
 
     return () => {
       for (const type of gestures) window.removeEventListener(type, onGesture, true)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('pageshow', onVisible)
       for (const id of running.values()) window.clearInterval(id)
       running.clear()
       for (const audio of Object.values(created)) {
@@ -124,28 +143,48 @@ export function useMusic(tracks: Tracks | null) {
       elements.current = null
       started.current = false
       starting.current = false
+      switching.current = false
     }
-  }, [mainSrc, scrollSrc, begin])
+  }, [enabled, mainSrc, scrollSrc, begin, ensure])
 
   const start = useCallback(() => begin(true), [begin])
 
   const switchTo = useCallback(
     (key: TrackKey) => {
       const els = elements.current
-      if (!els || current.current === key) return
-      const prev = els[current.current]
+      if (!els || current.current === key || switching.current) return
+      const prevKey = current.current
+      const prev = els[prevKey]
       current.current = key
       if (!started.current || paused.current) return
 
       const next = els[key]
+      switching.current = true
       next.currentTime = 0
       next.muted = ducked.current && !volumeControl.current
       if (volumeControl.current) next.volume = 0
-      next.play().catch(() => {})
-      fade(next, level(ducked.current), 3000)
-      fade(prev, 0, 2500, () => prev.pause())
+      next
+        .play()
+        .then(() => {
+          if (elements.current !== els) return
+          if (current.current !== key || paused.current) {
+            next.pause()
+            prev.pause()
+            return
+          }
+          fade(next, level(ducked.current), 3000)
+          fade(prev, 0, 2500, () => prev.pause())
+        })
+        .catch(() => {
+          if (elements.current !== els) return
+          if (current.current === key) current.current = prevKey
+          ensure()
+        })
+        .finally(() => {
+          switching.current = false
+        })
     },
-    [fade],
+    [fade, ensure],
   )
 
   const toggle = useCallback(() => {
@@ -181,5 +220,5 @@ export function useMusic(tracks: Tracks | null) {
     [fade],
   )
 
-  return { available, playing, start, switchTo, toggle, duck }
+  return { available, playing, start, switchTo, toggle, duck, ensure }
 }
