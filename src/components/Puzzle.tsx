@@ -27,7 +27,7 @@ type Drag = {
 
 type Grab = (e: ReactPointerEvent<HTMLElement>, rect: DOMRect) => void
 
-const TRAY_SLOT = 60
+const TRAY_SLOT = 42
 const HINT_MS = 4000
 const CENTER = (SIZE - 1) / 2
 
@@ -414,7 +414,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ delay: 0.9, duration: 0.8 }}
-            className="mt-4 grid w-full max-w-sm grid-cols-5 gap-1.5"
+            className="mt-4 grid w-full max-w-sm grid-cols-7 gap-1"
           >
             {order.map((id) => {
               const hidden = Boolean(placed[id]) || id === dragId
@@ -425,7 +425,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
                     const shape = e.currentTarget.querySelector('[data-piece]')
                     if (!hidden && shape) grab(id)(e, shape.getBoundingClientRect())
                   }}
-                  className={`flex h-16 touch-none items-center justify-center rounded-xl bg-night/25 ${hidden ? '' : 'cursor-grab'}`}
+                  className={`flex h-14 touch-none items-center justify-center rounded-xl bg-night/25 ${hidden ? '' : 'cursor-grab'}`}
                 >
                   <div className={hidden ? 'invisible' : ''}>
                     <Shape piece={pieceById[id]} pitch={trayPitch} />
