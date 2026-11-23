@@ -1,5 +1,23 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
 
+const SPRITE = 64
+
+function glowSprite() {
+  const sprite = document.createElement('canvas')
+  sprite.width = SPRITE
+  sprite.height = SPRITE
+  const ctx = sprite.getContext('2d')
+  if (!ctx) return sprite
+  const half = SPRITE / 2
+  const glow = ctx.createRadialGradient(half, half, 0, half, half, half)
+  glow.addColorStop(0, 'rgba(248, 228, 180, 1)')
+  glow.addColorStop(0.3, 'rgba(217, 187, 130, 0.45)')
+  glow.addColorStop(1, 'rgba(217, 187, 130, 0)')
+  ctx.fillStyle = glow
+  ctx.fillRect(0, 0, SPRITE, SPRITE)
+  return sprite
+}
+
 function GoldDust({ count }: { count: number }) {
   const ref = useRef<HTMLCanvasElement>(null)
 
@@ -9,7 +27,8 @@ function GoldDust({ count }: { count: number }) {
     if (!canvas || !ctx) return
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+    const sprite = glowSprite()
     let width = 0
     let height = 0
     let frame = 0
@@ -44,16 +63,11 @@ function GoldDust({ count }: { count: number }) {
           p.y = height + 12
           p.x = Math.random() * width
         }
-        const alpha = 0.15 + 0.85 * (0.5 + 0.5 * Math.sin(p.phase))
-        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 5)
-        glow.addColorStop(0, `rgba(248, 228, 180, ${alpha})`)
-        glow.addColorStop(0.3, `rgba(217, 187, 130, ${alpha * 0.45})`)
-        glow.addColorStop(1, 'rgba(217, 187, 130, 0)')
-        ctx.fillStyle = glow
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.r * 5, 0, Math.PI * 2)
-        ctx.fill()
+        const size = p.r * 10
+        ctx.globalAlpha = 0.15 + 0.85 * (0.5 + 0.5 * Math.sin(p.phase))
+        ctx.drawImage(sprite, p.x - size / 2, p.y - size / 2, size, size)
       }
+      ctx.globalAlpha = 1
       frame = requestAnimationFrame(draw)
     }
     draw()
@@ -81,7 +95,7 @@ function Petals({ count }: { count: number }) {
           delay: -Math.random() * 25,
           sway: (Math.random() - 0.5) * 180,
           spin: 200 + Math.random() * 500,
-          alpha: far ? 0.45 : 0.85,
+          alpha: far ? 0.3 : 0.85,
         }
       }),
     [count],
@@ -102,7 +116,7 @@ function Petals({ count }: { count: number }) {
         <svg
           key={p.id}
           viewBox="0 0 20 24"
-          className={`absolute top-0 opacity-0 motion-reduce:hidden ${p.far ? 'blur-xs' : ''}`}
+          className="absolute top-0 opacity-0 motion-reduce:hidden"
           style={
             {
               left: `${p.left}%`,

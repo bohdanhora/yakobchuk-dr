@@ -22,7 +22,7 @@ function ramp(ctx: AudioContext, param: AudioParam, to: number, seconds: number)
 }
 
 function buildGraph(els: Record<TrackKey, HTMLAudioElement>): Graph {
-  const ctx = new AudioContext()
+  const ctx = new AudioContext({ latencyHint: 'playback' })
   const master = ctx.createGain()
   master.gain.value = MASTER
   master.connect(ctx.destination)
