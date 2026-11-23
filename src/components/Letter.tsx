@@ -43,6 +43,7 @@ export function Letter() {
 
         <div className="relative mt-10 flex items-end justify-between gap-4">
           <motion.div
+            className="shrink-0"
             initial={{ scale: 2, opacity: 0, rotate: -30 }}
             whileInView={{ scale: 1, opacity: 1, rotate: -10 }}
             viewport={{ once: true, amount: 1 }}
@@ -50,7 +51,18 @@ export function Letter() {
           >
             <WaxSeal className="size-16 drop-shadow-md" />
           </motion.div>
-          <Signature text={signature} tone="wine" delay={0.2} speed={0.11} className="h-11 w-auto max-w-full" />
+          <div className="flex min-w-0 flex-col items-end gap-1">
+            {signature.map((line, i, lines) => (
+              <Signature
+                key={i}
+                text={line}
+                tone="wine"
+                delay={0.2 + lines.slice(0, i).join('').length * 0.11}
+                speed={0.11}
+                className="h-10 w-auto max-w-full min-w-0"
+              />
+            ))}
+          </div>
         </div>
       </motion.article>
     </section>

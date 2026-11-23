@@ -27,7 +27,6 @@ export function Intro({ onDone }: { onDone: () => void }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 1.2 } }}
       transition={{ duration: 1 }}
-      onClick={() => doneRef.current()}
       className="relative flex min-h-svh items-center justify-center px-8 text-center"
     >
       <AnimatePresence mode="wait">
@@ -48,14 +47,6 @@ export function Intro({ onDone }: { onDone: () => void }) {
           </motion.p>
         )}
       </AnimatePresence>
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 0.4 }}
-        transition={{ delay: 3 }}
-        className="absolute bottom-10 text-xs tracking-widest text-cream uppercase"
-      >
-        коснись, чтобы продолжить
-      </motion.p>
     </motion.section>
   )
 }

@@ -11,6 +11,7 @@ import { MusicToggle, ScrollProgress } from './components/MusicToggle'
 import { Polaroids } from './components/Polaroids'
 import { Puzzle } from './components/Puzzle'
 import { Reasons } from './components/Reasons'
+import { SafariPrompt } from './components/SafariPrompt'
 import { Story } from './components/Story'
 import { content } from './content'
 import { useCountdown } from './hooks/useCountdown'
@@ -65,6 +66,7 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+      {isOpen && stage === 'envelope' && <SafariPrompt />}
       {stage === 'card' && <ScrollProgress />}
       {music.available &&<MusicToggle playing={music.playing} onToggle={music.toggle} />}
     </MotionConfig>

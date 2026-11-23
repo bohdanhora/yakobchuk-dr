@@ -6,7 +6,6 @@ import { content } from '../content'
 import { sparkle } from '../lib/celebrate'
 import {
   gem,
-  isCorrectSpot,
   maxPieceSide,
   pieceById,
   pieces,
@@ -28,23 +27,26 @@ type Drag = {
 
 type Grab = (e: ReactPointerEvent<HTMLElement>, rect: DOMRect) => void
 
-const HINT_AFTER_MISTAKES = 3
-const TRAY_SLOT = 84
+const TRAY_SLOT = 60
+const HINT_MS = 4000
+const CENTER = (SIZE - 1) / 2
 
 function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} aria-label={label} className="flex flex-col items-center gap-1.5">
-      <span className="flex size-12 items-center justify-center rounded-full border border-gold-500/50 bg-wine-900/70 text-gold-300 shadow-card backdrop-blur-sm transition-transform active:scale-90">
-        {children}
-      </span>
-      <span className="text-xs tracking-wide text-cream/55">{label}</span>
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-2 rounded-full border border-gold-500/50 bg-wine-900/70 px-4 py-2 text-sm text-gold-200 shadow-card backdrop-blur-sm transition-transform active:scale-95"
+    >
+      {children}
+      {label}
     </button>
   )
 }
 
 function ResetIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="size-5 fill-none stroke-current" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" className="size-4 fill-none stroke-current" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 12a8 8 0 1 0 2.4-5.7" />
       <path d="M4 4v4.5h4.5" />
     </svg>
@@ -53,7 +55,7 @@ function ResetIcon() {
 
 function HintIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="size-5 fill-none stroke-current" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" className="size-4 fill-none stroke-current" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 18h6M10 21h4" />
       <path d="M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.2h5c0-.9.4-1.7 1.1-2.2A6 6 0 0 0 12 3z" />
     </svg>
@@ -102,7 +104,7 @@ function Burst({ grid, pitch }: { grid: (string | null)[][]; pitch: number }) {
           r,
           c,
           tone: pieceById[id ?? 'A'].tone,
-          dist: Math.hypot(r - 2.5, c - 2.5),
+          dist: Math.hypot(r - CENTER, c - CENTER),
           spin: (Math.random() - 0.5) * 180,
           push: 0.6 + Math.random() * 0.8,
         })),
@@ -122,8 +124,8 @@ function Burst({ grid, pitch }: { grid: (string | null)[][]; pitch: number }) {
             scale: [1, 1.15, 1.15, 0],
             opacity: [1, 1, 1, 0],
             rotate: [0, 0, 0, cell.spin],
-            x: [0, 0, 0, (cell.c - 2.5) * pitch * cell.push],
-            y: [0, -4, -4, (cell.r - 2.5) * pitch * cell.push],
+            x: [0, 0, 0, (cell.c - CENTER) * pitch * cell.push],
+            y: [0, -4, -4, (cell.r - CENTER) * pitch * cell.push],
           }}
           transition={{ duration: 1.3, delay: 0.4 + cell.dist * 0.1, times: [0, 0.25, 0.45, 1], ease: 'easeIn' }}
         >
@@ -149,19 +151,17 @@ function Burst({ grid, pitch }: { grid: (string | null)[][]; pitch: number }) {
 }
 
 export function Puzzle({ onSolved }: { onSolved: () => void }) {
-  const { eyebrow, title, subtitle, hint, reset, solved: solvedText } = content.puzzle
+  const { eyebrow, title, subtitle, hint, hintNote, reset, solved: solvedText } = content.puzzle
   const boardRef = useRef<HTMLDivElement>(null)
   const [pitch, setPitch] = useState(56)
   const [placed, setPlaced] = useState<Record<string, Spot>>({})
   const [order] = useState(() => shuffle(pieces.map((p) => p.id)))
   const [drag, setDrag] = useState<Drag | null>(null)
-  const [hinted, setHinted] = useState<string | null>(null)
-  const [mistakes, setMistakes] = useState(0)
+  const [hinting, setHinting] = useState(false)
   const dragRef = useRef<Drag | null>(null)
   const targetRef = useRef<Spot | null>(null)
   const doneRef = useRef(onSolved)
   const solved = pieces.every((p) => placed[p.id])
-  const hintReady = mistakes >= HINT_AFTER_MISTAKES
   const trayPitch = Math.floor(Math.min(pitch * 0.42, TRAY_SLOT / maxPieceSide))
 
   useEffect(() => {
@@ -202,13 +202,16 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
     return fits ? spot : null
   }, [drag, pitch, grid])
 
-  const placedRef = useRef(placed)
-
   useEffect(() => {
     dragRef.current = drag
     targetRef.current = target
-    placedRef.current = placed
   })
+
+  useEffect(() => {
+    if (!hinting) return
+    const id = window.setTimeout(() => setHinting(false), HINT_MS)
+    return () => window.clearTimeout(id)
+  }, [hinting])
 
   const dragId = drag?.id
 
@@ -225,12 +228,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
           else delete next[d.id]
           return next
         })
-        if (t) {
-          navigator.vibrate?.(8)
-          const prev = placedRef.current[d.id]
-          const moved = !prev || prev.r !== t.r || prev.c !== t.c
-          if (moved && !isCorrectSpot(pieceById[d.id], t)) setMistakes((m) => m + 1)
-        }
+        if (t) navigator.vibrate?.(8)
       }
       setDrag(null)
     }
@@ -263,7 +261,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
     (e, rect) => {
       if (solved) return
       e.preventDefault()
-      setHinted(null)
+      setHinting(false)
       setDrag({
         id,
         x: e.clientX,
@@ -275,17 +273,11 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
     }
 
   const showHint = () => {
-    const next = order.find((id) => {
-      const spot = placed[id]
-      return !spot || !isCorrectSpot(pieceById[id], spot)
-    })
-    if (!next) return
-    setHinted(next)
-    window.setTimeout(() => setHinted((h) => (h === next ? null : h)), 3500)
+    setPlaced({})
+    setHinting(true)
   }
 
   const dragPiece = drag ? pieceById[drag.id] : null
-  const hintPiece = hinted ? pieceById[hinted] : null
 
   return (
     <motion.section
@@ -293,7 +285,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 0.8 } }}
       transition={{ duration: 1 }}
-      className="flex min-h-svh flex-col items-center px-4 pt-10 pb-8 select-none"
+      className="flex min-h-svh flex-col items-center px-4 pt-6 pb-6 select-none"
     >
       <motion.p
         initial={{ opacity: 0, letterSpacing: '0.7em' }}
@@ -317,14 +309,30 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
         transition={{ delay: solved ? 0 : 0.8, duration: 0.8 }}
         className="mt-2 max-w-xs text-center text-base leading-snug text-cream/70 italic"
       >
-        {subtitle}
+        {hinting ? hintNote : subtitle}
       </motion.p>
+
+      {!solved && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1, duration: 0.8 }}
+          className="mt-3 flex items-center justify-center gap-3"
+        >
+          <IconButton label={hint} onClick={showHint}>
+            <HintIcon />
+          </IconButton>
+          <IconButton label={reset} onClick={() => setPlaced({})}>
+            <ResetIcon />
+          </IconButton>
+        </motion.div>
+      )}
 
       <motion.div
         initial={{ opacity: 0, scale: 0.92, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ delay: 0.6, duration: 1, ease: [0.22, 1, 0.36, 1] }}
-        className="relative mt-6 w-full max-w-sm rounded-3xl border border-gold-500/40 bg-linear-to-b from-wine-800/80 to-wine-950/90 p-2.5 shadow-card backdrop-blur-sm"
+        className="puzzle-board relative mt-4 rounded-3xl border border-gold-500/40 bg-linear-to-b from-wine-800/80 to-wine-950/90 p-2.5 shadow-card backdrop-blur-sm"
       >
         <div ref={boardRef} className="relative aspect-square w-full">
           {Array.from({ length: SIZE * SIZE }, (_, i) => (
@@ -353,30 +361,35 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
               ),
             )}
 
-          {hintPiece &&
-            hintPiece.cells.map(([r, c]) => (
-              <motion.div
-                key={`hint-${r}-${c}`}
-                className="pointer-events-none absolute z-10 p-0.5"
-                style={{
-                  left: (hintPiece.solution.c + c) * pitch,
-                  top: (hintPiece.solution.r + r) * pitch,
-                  width: pitch,
-                  height: pitch,
-                }}
-                initial={{ opacity: 0, scale: 0.6 }}
-                animate={{ opacity: [0.6, 1, 0.6], scale: [0.94, 1, 0.94] }}
-                transition={{ duration: 1.1, repeat: Infinity }}
-              >
-                <div
-                  className="size-full rounded-md border-2 border-white"
-                  style={{
-                    backgroundColor: `${hintPiece.tone.light}cc`,
-                    boxShadow: `0 0 14px 2px ${hintPiece.tone.light}, inset 0 0 8px rgb(255 255 255 / 0.6)`,
-                  }}
-                />
-              </motion.div>
-            ))}
+          <AnimatePresence>
+            {hinting &&
+              pieces.flatMap((piece) =>
+                piece.cells.map(([r, c]) => (
+                  <motion.div
+                    key={`hint-${piece.id}-${r}-${c}`}
+                    className="pointer-events-none absolute z-10 p-0.5"
+                    style={{
+                      left: (piece.solution.c + c) * pitch,
+                      top: (piece.solution.r + r) * pitch,
+                      width: pitch,
+                      height: pitch,
+                    }}
+                    initial={{ opacity: 0, scale: 0.6 }}
+                    animate={{ opacity: [0.65, 1, 0.65], scale: [0.95, 1, 0.95] }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ duration: 1.2, repeat: Infinity }}
+                  >
+                    <div
+                      className="size-full rounded-md border-2 border-white/80"
+                      style={{
+                        backgroundColor: `${piece.tone.light}bb`,
+                        boxShadow: `0 0 12px 1px ${piece.tone.light}, inset 0 0 8px rgb(255 255 255 / 0.5)`,
+                      }}
+                    />
+                  </motion.div>
+                )),
+              )}
+          </AnimatePresence>
 
           {dragPiece &&
             target &&
@@ -401,7 +414,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ delay: 0.9, duration: 0.8 }}
-            className="mt-5 grid w-full max-w-sm grid-cols-3 gap-2"
+            className="mt-4 grid w-full max-w-sm grid-cols-5 gap-1.5"
           >
             {order.map((id) => {
               const hidden = Boolean(placed[id]) || id === dragId
@@ -412,7 +425,7 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
                     const shape = e.currentTarget.querySelector('[data-piece]')
                     if (!hidden && shape) grab(id)(e, shape.getBoundingClientRect())
                   }}
-                  className={`flex h-24 touch-none items-center justify-center rounded-2xl bg-night/25 ${hidden ? '' : 'cursor-grab'}`}
+                  className={`flex h-16 touch-none items-center justify-center rounded-xl bg-night/25 ${hidden ? '' : 'cursor-grab'}`}
                 >
                   <div className={hidden ? 'invisible' : ''}>
                     <Shape piece={pieceById[id]} pitch={trayPitch} />
@@ -423,28 +436,6 @@ export function Puzzle({ onSolved }: { onSolved: () => void }) {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {!solved && (
-        <div className="mt-5 flex items-start justify-center gap-8">
-          <IconButton label={reset} onClick={() => setPlaced({})}>
-            <ResetIcon />
-          </IconButton>
-          <AnimatePresence>
-            {hintReady && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.5 }}
-                animate={{ opacity: 1, scale: [0.5, 1.15, 1] }}
-                exit={{ opacity: 0, scale: 0.5 }}
-                transition={{ duration: 0.6 }}
-              >
-                <IconButton label={hint} onClick={showHint}>
-                  <HintIcon />
-                </IconButton>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
 
       {drag &&
         dragPiece &&

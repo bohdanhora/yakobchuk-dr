@@ -90,6 +90,10 @@
   transform-origin: 50% 100%;
 }
 
+@utility puzzle-board {
+  width: min(100%, 24rem, calc(100svh - 21rem));
+}
+
 @utility safe-top {
   top: calc(env(safe-area-inset-top) + 1rem);
 }

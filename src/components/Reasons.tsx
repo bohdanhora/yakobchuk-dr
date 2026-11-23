@@ -62,6 +62,9 @@ function FlipCard({ reason, index }: { reason: Reason; index: number }) {
           <svg viewBox="0 0 24 24" className="relative mt-3 size-4 fill-wine-600">
             <path d="M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 6-8 11-8 11z" />
           </svg>
+          {reason.note && (
+            <span className="relative mt-2 font-hand text-lg leading-tight text-wine-900/60">({reason.note})</span>
+          )}
         </div>
       </motion.div>
     </motion.button>

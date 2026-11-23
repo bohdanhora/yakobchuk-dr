@@ -314,7 +314,11 @@ export function Cake({ onListenChange }: { onListenChange?: (on: boolean) => voi
                 transition={{ delay: 3.8, duration: 1.4 }}
                 className="mt-6 text-2xl leading-relaxed text-cream"
               >
-                {finale.text}
+                {finale.text.map((line) => (
+                  <span key={line} className="block">
+                    {line}
+                  </span>
+                ))}
               </motion.p>
               <Signature text={finale.signature} start="mount" delay={4.8} speed={0.12} className="mt-6 h-12 w-auto max-w-full" />
               <motion.button

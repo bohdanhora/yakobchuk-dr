@@ -12,8 +12,10 @@ const characters: StoryCharacter[] = story.characters
 const byId = Object.fromEntries(characters.map((c) => [c.id, c])) as Record<string, StoryCharacter>
 
 const STORAGE_KEY = 'yakobchuk-dr:favorite'
+const testMode = new URLSearchParams(window.location.search).has('test')
 
 function readFavorite() {
+  if (testMode) return null
   try {
     if (new URLSearchParams(window.location.search).has('reset-choice')) {
       localStorage.removeItem(STORAGE_KEY)
@@ -27,6 +29,7 @@ function readFavorite() {
 }
 
 function saveFavorite(id: string) {
+  if (testMode) return
   try {
     localStorage.setItem(STORAGE_KEY, id)
   } catch {
@@ -235,17 +238,51 @@ function Typewriter({ text, onDone }: { text: string; onDone: (done: boolean) =>
   )
 }
 
-function SceneView({ character, onReplay, onClose }: { character: StoryCharacter; onReplay: () => void; onClose: () => void }) {
+function Notice({ text }: { text: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -24, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -16, scale: 0.95 }}
+      transition={{ type: 'spring', stiffness: 220, damping: 20 }}
+      className="pointer-events-none absolute inset-x-4 top-20 z-20 mx-auto flex max-w-sm items-center gap-3 rounded-2xl border border-gold-300/70 bg-night/90 px-4 py-3 shadow-card backdrop-blur-md"
+    >
+      <motion.svg
+        viewBox="0 0 24 24"
+        className="size-7 shrink-0 fill-gold-300"
+        animate={{ scale: [1, 1.2, 1] }}
+        transition={{ duration: 0.9, repeat: Infinity }}
+      >
+        <path d="M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 6-8 11-8 11z" />
+      </motion.svg>
+      <div>
+        <p className="text-xs tracking-widest text-gold-300 uppercase">{story.noticeTitle}</p>
+        <p className="mt-0.5 font-serif text-base leading-snug text-cream italic">{text}</p>
+      </div>
+    </motion.div>
+  )
+}
+
+type SceneProps = { character: StoryCharacter; onReplay: () => void; onClose: () => void; onSwitch?: () => void }
+
+function SceneView({ character, onReplay, onClose, onSwitch }: SceneProps) {
   const [steps, setSteps] = useState<Step[]>(() => character.lines.map((line) => ({ ...line })))
   const [index, setIndex] = useState(0)
   const [phase, setPhase] = useState<'title' | 'dialog' | 'end'>('title')
   const [typed, setTyped] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const step = steps[Math.min(index, steps.length - 1)]
 
   useEffect(() => {
     const id = window.setTimeout(() => setPhase('dialog'), 2200)
     return () => window.clearTimeout(id)
   }, [])
+
+  useEffect(() => {
+    if (!notice) return
+    const id = window.setTimeout(() => setNotice(null), 4200)
+    return () => window.clearTimeout(id)
+  }, [notice])
 
   useEffect(() => {
     if (phase !== 'end') return
@@ -270,6 +307,7 @@ function SceneView({ character, onReplay, onClose }: { character: StoryCharacter
 
   const choose = (choice: StoryChoice) => {
     if (choice.special) sparkle(0.5, 0.7, 40)
+    if (choice.notice) setNotice(choice.notice)
     navigator.vibrate?.(10)
     setSteps((prev) => [...prev.slice(0, index), { ...prev[index], choices: undefined }, { text: choice.reply }, ...prev.slice(index + 1)])
     setTyped(false)
@@ -290,6 +328,8 @@ function SceneView({ character, onReplay, onClose }: { character: StoryCharacter
         className="absolute inset-0"
         style={{ backgroundImage: `radial-gradient(ellipse at 50% 38%, ${character.accent}88 0%, transparent 62%)` }}
       />
+
+      <AnimatePresence>{notice && <Notice key="notice" text={notice} />}</AnimatePresence>
 
       <AnimatePresence>
         {phase === 'title' && (
@@ -419,13 +459,27 @@ function SceneView({ character, onReplay, onClose }: { character: StoryCharacter
               {story.close}
             </button>
           </motion.div>
+          {onSwitch && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onSwitch()
+              }}
+              className="mt-4 text-base text-gold-300 underline underline-offset-4"
+            >
+              {story.testSwitch}
+            </button>
+          )}
         </motion.div>
       )}
     </motion.div>
   )
 }
 
-function StoryOverlay({ favorite, onChoose, onClose }: { favorite: string | null; onChoose: (id: string) => void; onClose: () => void }) {
+type OverlayProps = { favorite: string | null; onChoose: (id: string) => void; onClose: () => void; onSwitch?: () => void }
+
+function StoryOverlay({ favorite, onChoose, onClose, onSwitch }: OverlayProps) {
   const [pending, setPending] = useState<string | null>(null)
   const [run, setRun] = useState(0)
   const chosen = favorite ? byId[favorite] : null
@@ -459,7 +513,13 @@ function StoryOverlay({ favorite, onChoose, onClose }: { favorite: string | null
       <div className="pointer-events-none absolute inset-0 bg-radial from-wine-800/70 via-wine-950/60 to-night" />
       <AnimatePresence mode="wait">
         {chosen ? (
-          <SceneView key={`${chosen.id}-${run}`} character={chosen} onReplay={() => setRun((r) => r + 1)} onClose={onClose} />
+          <SceneView
+            key={`${chosen.id}-${run}`}
+            character={chosen}
+            onReplay={() => setRun((r) => r + 1)}
+            onClose={onClose}
+            onSwitch={onSwitch}
+          />
         ) : (
           <ChooseScreen key="choose" onPick={setPending} />
         )}
@@ -550,7 +610,14 @@ export function Story() {
       </motion.button>
       {createPortal(
         <AnimatePresence>
-          {open && <StoryOverlay favorite={favorite} onChoose={choose} onClose={() => setOpen(false)} />}
+          {open && (
+            <StoryOverlay
+              favorite={favorite}
+              onChoose={choose}
+              onClose={() => setOpen(false)}
+              onSwitch={testMode ? () => setFavorite(null) : undefined}
+            />
+          )}
         </AnimatePresence>,
         document.body,
       )}
