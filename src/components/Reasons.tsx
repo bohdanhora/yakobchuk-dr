@@ -30,14 +30,15 @@ function FlipCard({ reason, index }: { reason: Reason; index: number }) {
       whileInView={{ opacity: 1, y: 0, rotateY: 0 }}
       viewport={{ once: true, amount: 0.4 }}
       transition={{ duration: 0.9, delay: (index % 2) * 0.15, ease: [0.22, 1, 0.36, 1] }}
-      className="aspect-3/4 perspective-distant"
+      className="grid grid-cols-1 perspective-distant"
     >
       <motion.div
         animate={{ rotateY: flipped ? 180 : 0 }}
         transition={{ duration: 0.8, ease: [0.65, 0, 0.35, 1] }}
-        className="relative size-full transform-3d"
+        className="relative grid grid-cols-1 transform-3d"
       >
-        <div className="absolute inset-0 overflow-hidden rounded-2xl bg-linear-to-br from-wine-700 via-wine-800 to-wine-950 p-2 shadow-card backface-hidden">
+        <div className="col-start-1 row-start-1 aspect-3/4" />
+        <div className="relative col-start-1 row-start-1 overflow-hidden rounded-2xl bg-linear-to-br from-wine-700 via-wine-800 to-wine-950 p-2 shadow-card backface-hidden">
           <div className="relative flex size-full flex-col items-center justify-center rounded-xl border border-gold-500/50">
             <div className="absolute inset-1 rounded-lg border border-gold-500/20" />
             <Corner className="absolute top-2 left-2 size-4 text-gold-500/80" />
@@ -56,7 +57,7 @@ function FlipCard({ reason, index }: { reason: Reason; index: number }) {
             transition={{ delay: 0.6 + (index % 2) * 0.15, duration: 1.4, ease: 'easeInOut' }}
           />
         </div>
-        <div className="paper absolute inset-0 flex rotate-y-180 flex-col items-center justify-center rounded-2xl p-5 text-center shadow-card backface-hidden">
+        <div className="paper relative col-start-1 row-start-1 flex rotate-y-180 flex-col items-center justify-center rounded-2xl px-5 py-7 text-center shadow-card backface-hidden">
           <div className="absolute inset-2 rounded-xl border border-gold-500/40" />
           <span className="relative font-serif text-xl leading-snug text-wine-900 italic">{reason.back}</span>
           <svg viewBox="0 0 24 24" className="relative mt-3 size-4 fill-wine-600">
